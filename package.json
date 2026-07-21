@@ -1,6 +1,6 @@
 {
   "name": "tg-saver",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Privacy-first, no-limits Telegram Web media downloader. Chrome MV3 extension.",

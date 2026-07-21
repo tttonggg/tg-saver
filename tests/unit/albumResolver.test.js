@@ -14,9 +14,9 @@ const webaAlbum = readFileSync(join(here, '../fixtures/weba-album.html'), 'utf8'
 
 test('album message groups thumbs into an Album (full-res comes later)', () => {
   const dom = new JSDOM(webaAlbum);
-  const messageEl = dom.window.document.querySelector('.message');
+  const messageEl = dom.window.document.querySelector('.Message');
   // Pretend all 3 album thumbs are REAL for grouping purposes.
-  const thumbs = Array.from(messageEl.querySelectorAll('.thumb'));
+  const thumbs = Array.from(messageEl.querySelectorAll('.media-preview--image'));
   const items = thumbs.map(t => buildMediaItem(t, messageEl, weba)).filter(Boolean);
   const result = groupIntoAlbum(items, messageEl, weba);
   assert.equal(result.kind, 'album');
@@ -25,8 +25,8 @@ test('album message groups thumbs into an Album (full-res comes later)', () => {
 
 test('single item is not an album', () => {
   const dom = new JSDOM(webaAlbum);
-  const messageEl = dom.window.document.querySelector('.message');
-  const one = messageEl.querySelector('.thumb');
+  const messageEl = dom.window.document.querySelector('.Message');
+  const one = messageEl.querySelector('.media-preview--image');
   const items = [buildMediaItem(one, messageEl, weba)].filter(Boolean);
   const result = groupIntoAlbum(items, messageEl, weba);
   assert.equal(result.kind, 'single');
