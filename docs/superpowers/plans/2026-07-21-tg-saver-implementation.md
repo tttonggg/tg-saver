@@ -1066,6 +1066,17 @@ test('strips filesystem-illegal characters', () => {
   const name = buildFilename({ item: { ...baseItem, fileName: 'bad/name?:*.txt' } });
   assert.equal(name, 'bad_name___.txt');
 });
+
+test('strips trailing dots/spaces (Windows collision guard)', () => {
+  const name = buildFilename({ item: { ...baseItem, fileName: 'file.   ' } });
+  assert.equal(name, 'file');
+});
+
+test('prefixes Windows-reserved device names', () => {
+  assert.equal(buildFilename({ item: { ...baseItem, fileName: 'CON.mp4' } }), '_CON.mp4');
+  assert.equal(buildFilename({ item: { ...baseItem, fileName: 'nul' } }), '_nul');
+  assert.equal(buildFilename({ item: { ...baseItem, fileName: 'com1.txt' } }), '_com1.txt');
+});
 ```
 
 - [ ] **Step 2: Run, verify fails**
@@ -1080,6 +1091,9 @@ Expected: FAIL.
 // Telegram-native naming. Mirrors what Telegram Web's own Save As produces.
 
 const ILLEGAL_RE = /[<>:"/\\|?*\x00-\x1f]/g;
+const TRAILING_RE = /[.\s]+$/;
+// Windows reserved device names (case-insensitive), with or without extension.
+const WIN_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -1089,7 +1103,12 @@ function timestampStamp(ts) {
 }
 
 function sanitize(name) {
-  return name.replace(ILLEGAL_RE, '_').replace(/\s+/g, ' ').trim() || 'download';
+  let cleaned = name.replace(ILLEGAL_RE, '_').replace(/\s+/g, ' ').trim();
+  // Strip trailing dots/spaces — Windows ignores them, causing silent collisions.
+  cleaned = cleaned.replace(TRAILING_RE, '');
+  // Prefix reserved Windows device names so they save correctly cross-platform.
+  if (WIN_RESERVED.test(cleaned)) cleaned = `_${cleaned}`;
+  return cleaned || 'download';
 }
 
 /**
