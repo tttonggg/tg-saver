@@ -4,6 +4,7 @@
 // Accepts the resolved descriptor from resolveUrl() so we don't double-probe.
 
 import { formatRangeHeader } from '../utils/range.js';
+import { fetchWithRetry } from './retry.js';
 import { log } from '../utils/logger.js';
 
 const SEGMENT_PARALLEL = 20;
@@ -42,8 +43,8 @@ export async function streamToDisk({ url, filename, size, segmentSize, rangeSupp
     if (!rangeSupported) {
       // Single whole-body fetch (blob: or non-range server).
       if (signal?.aborted) throw new Error('aborted');
-      const resp = await fetch(url, { signal });
-      if (!resp.ok) throw new Error(`streamToDisk: HTTP ${resp.status}`);
+      const resp = await fetchWithRetry(url, { signal });
+      if (!resp || !resp.ok) throw new Error(`streamToDisk: HTTP ${resp?.status}`);
       const reader = resp.body.getReader();
       while (true) {
         const { value, done: streamDone } = await reader.read();
@@ -69,8 +70,8 @@ export async function streamToDisk({ url, filename, size, segmentSize, rangeSupp
         batch.push({ segStart, segEnd });
       }
       const results = await Promise.all(batch.map(async ({ segStart, segEnd }) => {
-        const r = await fetch(url, { headers: { Range: formatRangeHeader(segStart, segEnd) }, signal });
-        if (r.status !== 206) throw new Error(`segment HTTP ${r.status}`);
+        const r = await fetchWithRetry(url, { headers: { Range: formatRangeHeader(segStart, segEnd) }, signal });
+        if (!r || r.status !== 206) throw new Error(`segment HTTP ${r?.status}`);
         return r.arrayBuffer();
       }));
       for (const buf of results) {

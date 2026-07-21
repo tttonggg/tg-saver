@@ -10,12 +10,15 @@ export function setState(btn, state, progress) {
   btn.innerHTML = icon;
   btn.title = tooltipFor(state, progress);
 
-  let progressEl = btn.parentElement?.querySelector('.tg-saver-progress');
+  // Progress element lives INSIDE the button so it works for both footer and
+  // overlay strategies (overlay's parent is the media container, which has no
+  // .tg-saver-progress sibling).
+  let progressEl = btn.querySelector('.tg-saver-progress');
   if (state === 'downloading') {
     if (!progressEl) {
       progressEl = document.createElement('span');
       progressEl.className = 'tg-saver-progress';
-      btn.parentElement.appendChild(progressEl);
+      btn.appendChild(progressEl);
     }
     progressEl.textContent = `${Math.round(progress || 0)}%`;
   } else if (progressEl) {

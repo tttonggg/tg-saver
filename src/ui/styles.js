@@ -40,6 +40,35 @@ const CSS = `
   opacity: 0.7;
 }
 
+/* Overlay variant — used when no footer; button sits on top of the media. */
+.tg-saver-overlay-host { position: relative; }
+.tg-saver-btn-overlay {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  opacity: 0.85;
+  background: #2481cc;
+  color: #fff;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  z-index: 1000000;
+}
+.tg-saver-btn-overlay:hover { opacity: 1; }
+.tg-saver-btn-overlay svg { width: 18px; height: 18px; }
+.tg-saver-btn-overlay .tg-saver-progress {
+  position: absolute;
+  bottom: -16px;
+  right: 0;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 1px 4px;
+  border-radius: 2px;
+  opacity: 1;
+}
+
 @keyframes tg-saver-spin { to { transform: rotate(360deg); } }
 `;
 
