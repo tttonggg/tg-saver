@@ -1,5 +1,13 @@
 // src/ui/buttonInjector.js
-// Attaches one download button to a message footer.
+// Attaches a download button to a message.
+//
+// Two attach strategies (revised 2026-07-21 after live-DOM diagnosis):
+//   Strategy A (preferred): inside the message footer (.MessageMeta) next to the
+//     timestamp — matches Telegram's own UI grammar. Used when footer exists.
+//   Strategy B (fallback): overlay on the media's parent element via absolute
+//     positioning. Used when no footer is found (most photo/video-only messages).
+//     This is the strategy the working tgdwn userscript uses for everything.
+//
 // For a single item: one click = one download.
 // For an album: one click = sequential queue of all items (silent or normal).
 
@@ -23,12 +31,34 @@ export function attachButton({ messageEl, grouped, platform, settings }) {
   if (grouped.kind === 'empty') return;
   injectStyles(document);
 
-  const footer = pickFirst(messageEl, platform.selectors.messageFooter);
-  if (!footer) { log.warn('no footer to attach to'); return; }
-  if (footer.querySelector('.tg-saver-btn')) return; // idempotent
+  // Step 1: try footer (Strategy A)
+  let host = pickFirst(messageEl, platform.selectors.messageFooter);
+  let strategy = 'footer';
+
+  // Step 2: if no footer, overlay on a media parent (Strategy B)
+  if (!host) {
+    const firstItem = grouped.kind === 'album' ? grouped.items[0] : grouped.item;
+    const mediaEl = firstItem?.nodeRef?.deref();
+    if (mediaEl) {
+      // Walk up to the nearest positioned-or-positionable container.
+      // The userscript uses mediaEl.parentElement; we do the same but also
+      // ensure the host can be positioned.
+      host = mediaEl.parentElement;
+      if (host && getComputedStyle(host).position === 'static') {
+        host.classList.add('tg-saver-overlay-host');
+      }
+      strategy = 'overlay';
+    }
+  }
+
+  if (!host) {
+    log.warn('no footer and no media parent to attach to; skipping');
+    return;
+  }
+  if (host.querySelector('.tg-saver-btn')) return; // idempotent
 
   const btn = document.createElement('button');
-  btn.className = 'tg-saver-btn';
+  btn.className = 'tg-saver-btn' + (strategy === 'overlay' ? ' tg-saver-btn-overlay' : '');
   btn.type = 'button';
   btn.id = `tg-saver-btn-${++_seq}`;
   setState(btn, 'idle');
@@ -42,7 +72,7 @@ export function attachButton({ messageEl, grouped, platform, settings }) {
     await handleClick({ btn, grouped, platform, settings });
   });
 
-  footer.appendChild(btn);
+  host.appendChild(btn);
 }
 
 async function handleClick({ btn, grouped, platform, settings }) {
@@ -50,20 +80,18 @@ async function handleClick({ btn, grouped, platform, settings }) {
   setState(btn, 'resolving');
 
   try {
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
       let rawSrc = item.rawSrc;
 
       // Album items typically need the viewer to load full-res.
       if (grouped.kind === 'album' && looksLikeThumbnail(rawSrc)) {
         if (settings.silentMode) {
-          // CRITICAL: install the hide rule BEFORE opening the viewer, so the
-          // viewer never paints. (Spec §3 Stage 0 silent-mode requirement.)
           prepareSilentViewer({ platform });
           platform.nativeViewerOpen(item.messageRef?.deref(), item.nodeRef?.deref());
           const captured = await captureFromSilentViewer({ platform });
           if (captured) rawSrc = captured;
         } else {
-          // Normal mode: open the viewer (visible), then capture its src.
           platform.nativeViewerOpen(item.messageRef?.deref(), item.nodeRef?.deref());
           const captured = await waitForViewerUrl({ platform });
           if (captured) rawSrc = captured;
@@ -87,9 +115,6 @@ async function handleClick({ btn, grouped, platform, settings }) {
 }
 
 function looksLikeThumbnail(src) {
-  // Heuristic: album thumbs are typically blob: URLs of low-res variants.
-  // The real URL arrives via the viewer. We treat any album item as needing
-  // resolution unless its src clearly points at a full asset.
   return src?.startsWith('blob:');
 }
 
@@ -107,7 +132,6 @@ function waitForViewerUrl({ platform, timeoutMs = 10000 }) {
       resolve(value);
     }
 
-    // Viewer may already exist with src set.
     for (const sel of (Array.isArray(platform.selectors.mediaViewer) ? platform.selectors.mediaViewer : [platform.selectors.mediaViewer])) {
       const existing = document.querySelector(sel);
       if (existing) {
@@ -120,7 +144,6 @@ function waitForViewerUrl({ platform, timeoutMs = 10000 }) {
     observer = new MutationObserver((mutations) => {
       for (const m of mutations) {
         for (const node of m.addedNodes) {
-          // node might be the viewer or contain it.
           const viewers = [];
           const sels = Array.isArray(platform.selectors.mediaViewer) ? platform.selectors.mediaViewer : [platform.selectors.mediaViewer];
           if (sels.some(s => node.matches?.(s))) viewers.push(node);

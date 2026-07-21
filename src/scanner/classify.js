@@ -1,10 +1,18 @@
 // src/scanner/classify.js
 // Decides what a media node is. Returns one of:
 // REAL | THUMBNAIL | PROFILE_PIC | EMOJI | STICKER | UI_CHROME
+//
+// Strategy (revised 2026-07-21 after live-DOM diagnosis):
+//   1. Selector-based filtering for known-decorative contexts (avatar, emoji, sticker, album thumb)
+//      — fast path for the common case.
+//   2. Size heuristic as the safety net: a rendered element ≥ MEDIA_MIN_PX is almost always real
+//      media even when Telegram ships new class names we don't recognize. This is what the
+//      working tgdwn userscript relies on and it's dramatically more robust than selector-only.
+//   3. Skip the size rule for zero-rect nodes (jsdom, display:none during render).
 
 import { closestMatching } from '../utils/dom.js';
 
-const SMALL_PX = 48;
+const MEDIA_MIN_PX = 100;
 
 /**
  * @param {Element} node
@@ -15,6 +23,7 @@ const SMALL_PX = 48;
 export function classifyMediaNode(node, platform, settings = {}) {
   const sels = platform.selectors;
 
+  // Step 1: Known decorative contexts — fast path.
   if (closestMatching(node, arrayify(sels.avatar))) return 'PROFILE_PIC';
   if (closestMatching(node, arrayify(sels.emoji))) return 'EMOJI';
   if (closestMatching(node, arrayify(sels.albumThumb))) return 'THUMBNAIL';
@@ -23,19 +32,21 @@ export function classifyMediaNode(node, platform, settings = {}) {
   const stickerEl = closestMatching(node, arrayify(sels.sticker));
   if (stickerEl) return settings.includeStickers ? 'REAL' : 'STICKER';
 
-  // Data-attribute heuristic: explicit media id → REAL even if no context matched.
+  // Step 2: Explicit media data-attributes — strong REAL signal.
   if (node.dataset?.photoId || node.dataset?.documentId) return 'REAL';
 
-  // Size heuristic (last resort). Only fires for nodes with a non-zero rect:
-  // getBoundingClientRect returns 0×0 for disconnected nodes (jsdom) or
-  // elements with display:none, and treating those as "tiny" would misclassify
-  // real media that's briefly hidden during render.
+  // Step 3: Size heuristic — the safety net. A large rendered element is real
+  // media even if no selector matched. This protects against Telegram renaming
+  // classes (which has already happened once — see git log for v0.1.1).
   const rect = node.getBoundingClientRect?.();
-  if (rect && (rect.width > 0 || rect.height > 0) && Math.max(rect.width, rect.height) < SMALL_PX) {
-    // Tiny rendered media inside a text-like container is almost always emoji/icon chrome.
+  if (rect && (rect.width > 0 || rect.height > 0)) {
+    if (Math.max(rect.width, rect.height) >= MEDIA_MIN_PX) return 'REAL';
+    // Small rendered element inside a known text container is chrome.
     return 'UI_CHROME';
   }
 
+  // Zero-rect (jsdom / display:none during render): can't tell, assume REAL
+  // and let downstream filter again on the next mutation.
   return 'REAL';
 }
 
