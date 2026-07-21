@@ -4,6 +4,7 @@ import { getPlatform } from './platforms/index.js';
 import { loadSettings } from './settings/store.js';
 import { setDebugEnabled } from './utils/logger.js';
 import { startScanner } from './scanner/observer.js';
+import { attachButton } from './ui/buttonInjector.js';
 
 async function boot() {
   const name = detectPlatform();
@@ -20,12 +21,10 @@ async function boot() {
     platform,
     getSettings: () => settings,
     onDiscover: (messageEl, grouped) => {
-      // Phase 6: wire to button injector.
-      console.log(`[tg-saver] discovered ${grouped.kind} in msg ${messageEl.dataset?.msgId}`);
+      attachButton({ messageEl, grouped, platform, settings });
     },
   });
 
-  // Live-update settings (popup toggle takes effect without reload).
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.debug) setDebugEnabled(changes.debug.newValue);
     if (changes.includeStickers) settings.includeStickers = changes.includeStickers.newValue;
