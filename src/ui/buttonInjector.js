@@ -3,11 +3,11 @@
 // For a single item: one click = one download.
 // For an album: one click = sequential queue of all items (silent or normal).
 
-import { safeQueryAll, pickFirst } from '../utils/dom.js';
+import { pickFirst } from '../utils/dom.js';
 import { injectStyles } from './styles.js';
 import { setState } from './progressBadge.js';
 import { download } from '../downloader/index.js';
-import { captureFromSilentViewer } from './silentViewer.js';
+import { prepareSilentViewer, captureFromSilentViewer } from './silentViewer.js';
 import { log } from '../utils/logger.js';
 
 let _seq = 0;
@@ -50,19 +50,21 @@ async function handleClick({ btn, grouped, platform, settings }) {
   setState(btn, 'resolving');
 
   try {
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
+    for (const item of items) {
       let rawSrc = item.rawSrc;
 
-      // Album items typically need the viewer to load full-res. Silent mode
-      // hides the viewer; otherwise we let it open normally.
+      // Album items typically need the viewer to load full-res.
       if (grouped.kind === 'album' && looksLikeThumbnail(rawSrc)) {
         if (settings.silentMode) {
+          // CRITICAL: install the hide rule BEFORE opening the viewer, so the
+          // viewer never paints. (Spec §3 Stage 0 silent-mode requirement.)
+          prepareSilentViewer({ platform });
           platform.nativeViewerOpen(item.messageRef?.deref(), item.nodeRef?.deref());
           const captured = await captureFromSilentViewer({ platform });
           if (captured) rawSrc = captured;
         } else {
-          // Normal mode: Telegram's viewer opens; we wait for its src.
+          // Normal mode: open the viewer (visible), then capture its src.
+          platform.nativeViewerOpen(item.messageRef?.deref(), item.nodeRef?.deref());
           const captured = await waitForViewerUrl({ platform });
           if (captured) rawSrc = captured;
         }
@@ -93,16 +95,59 @@ function looksLikeThumbnail(src) {
 
 function waitForViewerUrl({ platform, timeoutMs = 10000 }) {
   return new Promise((resolve) => {
-    const viewers = safeQueryAll(document, platform.selectors.mediaViewer);
-    const viewer = viewers[0];
-    if (!viewer) return resolve(null);
+    let settled = false;
+    let observer;
+    let timer;
 
-    const observer = new MutationObserver(() => {
-      const media = viewer.querySelector('img, video');
-      const src = media?.src || media?.getAttribute('src');
-      if (src) { observer.disconnect(); resolve(src); }
+    function finish(value) {
+      if (settled) return;
+      settled = true;
+      observer?.disconnect();
+      clearTimeout(timer);
+      resolve(value);
+    }
+
+    // Viewer may already exist with src set.
+    for (const sel of (Array.isArray(platform.selectors.mediaViewer) ? platform.selectors.mediaViewer : [platform.selectors.mediaViewer])) {
+      const existing = document.querySelector(sel);
+      if (existing) {
+        const media = existing.querySelector('img, video');
+        const src = media?.src || media?.getAttribute('src');
+        if (src) return finish(src);
+      }
+    }
+
+    observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          // node might be the viewer or contain it.
+          const viewers = [];
+          const sels = Array.isArray(platform.selectors.mediaViewer) ? platform.selectors.mediaViewer : [platform.selectors.mediaViewer];
+          if (sels.some(s => node.matches?.(s))) viewers.push(node);
+          for (const s of sels) {
+            const within = node.querySelector?.(s);
+            if (within) viewers.push(within);
+          }
+          for (const v of viewers) {
+            const media = v.querySelector?.('img, video') || ((v.tagName === 'IMG' || v.tagName === 'VIDEO') ? v : null);
+            const src = media?.src || media?.getAttribute('src');
+            if (src) return finish(src);
+          }
+        }
+        if (m.type === 'attributes' && m.target) {
+          const media = m.target;
+          const src = media.src || media.getAttribute('src');
+          if (src && (media.tagName === 'IMG' || media.tagName === 'VIDEO')) return finish(src);
+        }
+      }
     });
-    observer.observe(viewer, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
-    setTimeout(() => { observer.disconnect(); resolve(null); }, timeoutMs);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['src'],
+    });
+
+    timer = setTimeout(() => finish(null), timeoutMs);
   });
 }

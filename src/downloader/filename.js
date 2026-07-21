@@ -1,6 +1,7 @@
 // src/downloader/filename.js
 // Telegram-native naming. Mirrors what Telegram Web's own Save As produces.
 
+// eslint-disable-next-line no-control-regex -- control chars are legitimately illegal in filenames
 const ILLEGAL_RE = /[<>:"/\\|?*\x00-\x1f]/g;
 const TRAILING_RE = /[.\s]+$/;
 // Windows reserved device names (case-insensitive), with or without extension.

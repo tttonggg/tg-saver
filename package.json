@@ -10,7 +10,7 @@
     "build:watch": "node build.js --watch",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "node --test tests/unit/"
+    "test": "node --test 'tests/unit/**/*.test.js'"
   },
   "devDependencies": {
     "@eslint/js": "^9.27.0",

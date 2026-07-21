@@ -1,8 +1,9 @@
 // src/downloader/streamDownload.js
 // Preferred path for large files. Uses the File System Access API to stream
 // bytes straight to disk without holding the whole file in memory.
+// Accepts the resolved descriptor from resolveUrl() so we don't double-probe.
 
-import { formatRangeHeader, parseContentRange } from '../utils/range.js';
+import { formatRangeHeader } from '../utils/range.js';
 import { log } from '../utils/logger.js';
 
 const SEGMENT_PARALLEL = 20;
@@ -12,23 +13,18 @@ const SEGMENT_PARALLEL = 20;
  * @param {string} args.url
  * @param {string} args.filename
  * @param {number} args.size
+ * @param {number} [args.segmentSize]     // from resolveUrl
+ * @param {boolean} [args.rangeSupported]  // from resolveUrl
  * @param {string} [args.contentType]
  * @param {(percent: number) => void} [args.onProgress]
  * @param {AbortSignal} [args.signal]
  */
-export async function streamToDisk({ url, filename, size: _size, contentType, onProgress, signal }) {
+export async function streamToDisk({ url, filename, size, segmentSize, rangeSupported, contentType, onProgress, signal }) {
   if (!('showSaveFilePicker' in window)) {
     throw new Error('File System Access API unavailable');
   }
 
-  // Probe to learn segment size + total.
-  const probe = await fetch(url, { headers: { Range: formatRangeHeader(0) }, signal });
-  if (probe.status !== 206) throw new Error(`streamToDisk: HTTP ${probe.status}`);
-  const contentRange = probe.headers.get('content-range');
-  const parsed = parseContentRange(contentRange);
-  if (!parsed) throw new Error('streamToDisk: malformed Content-Range');
-  const total = parsed.total;
-  const segmentSize = Number(probe.headers.get('content-length')) || 1;
+  const total = size;
   const ext = (contentType?.split('/')[1] || 'bin').split('+')[0];
 
   // File picker requires a user gesture — caller must invoke from a click handler.
@@ -43,6 +39,26 @@ export async function streamToDisk({ url, filename, size: _size, contentType, on
 
   let done = 0;
   try {
+    if (!rangeSupported) {
+      // Single whole-body fetch (blob: or non-range server).
+      if (signal?.aborted) throw new Error('aborted');
+      const resp = await fetch(url, { signal });
+      if (!resp.ok) throw new Error(`streamToDisk: HTTP ${resp.status}`);
+      const reader = resp.body.getReader();
+      while (true) {
+        const { value, done: streamDone } = await reader.read();
+        if (streamDone) break;
+        await writable.write({ type: 'write', data: value });
+        done += value.byteLength;
+        onProgress?.(total ? Math.round((done / total) * 100) : 100);
+      }
+      return;
+    }
+
+    if (!segmentSize || segmentSize < 1) {
+      throw new Error('streamToDisk: missing segment size');
+    }
+
     for (let start = 0; start < total; start += segmentSize * SEGMENT_PARALLEL) {
       if (signal?.aborted) throw new Error('aborted');
       const batch = [];
@@ -50,7 +66,7 @@ export async function streamToDisk({ url, filename, size: _size, contentType, on
         const segStart = start + j * segmentSize;
         if (segStart >= total) break;
         const segEnd = Math.min(segStart + segmentSize - 1, total - 1);
-        batch.push({ segStart, segEnd, idx: j });
+        batch.push({ segStart, segEnd });
       }
       const results = await Promise.all(batch.map(async ({ segStart, segEnd }) => {
         const r = await fetch(url, { headers: { Range: formatRangeHeader(segStart, segEnd) }, signal });

@@ -1,8 +1,9 @@
 // src/downloader/blobDownload.js
 // Fallback path for small files (<100 MB) or when File System Access is unavailable.
 // Mirrors the reference's Range fetch → Blob concatenation → <a download>.
+// Accepts the resolved descriptor from resolveUrl() so we don't double-probe.
 
-import { formatRangeHeader, parseContentRange } from '../utils/range.js';
+import { formatRangeHeader } from '../utils/range.js';
 import { log } from '../utils/logger.js';
 
 const SEGMENT_PARALLEL = 20;
@@ -12,23 +13,28 @@ const SEGMENT_PARALLEL = 20;
  * @param {string} args.url
  * @param {string} args.filename
  * @param {number} args.size
+ * @param {number} [args.segmentSize]    // from resolveUrl
+ * @param {boolean} [args.rangeSupported] // from resolveUrl; false for blob:
  * @param {string} [args.contentType]
  * @param {(percent: number) => void} [args.onProgress]
  * @param {AbortSignal} [args.signal]
  */
-export async function blobToDisk({ url, filename, size: _size, contentType, onProgress, signal }) {
-  const resp = await fetch(url, { headers: { Range: formatRangeHeader(0) }, signal });
-  if (![200, 206].includes(resp.status)) throw new Error(`blobToDisk: HTTP ${resp.status}`);
+export async function blobToDisk({ url, filename, size, segmentSize, rangeSupported, contentType, onProgress, signal }) {
+  // Non-range case (blob: URLs, or servers that ignore Range): single fetch, single buffer.
+  if (!rangeSupported) {
+    const resp = await fetch(url, { signal });
+    if (!resp.ok) throw new Error(`blobToDisk: HTTP ${resp.status}`);
+    const buf = await resp.arrayBuffer();
+    onProgress?.(100);
+    triggerDownload([buf], filename, contentType);
+    return;
+  }
 
-  const contentRange = resp.headers.get('content-range');
-  if (!contentRange) throw new Error('blobToDisk: no Content-Range');
-  const parsed = parseContentRange(contentRange);
-  if (!parsed) throw new Error('blobToDisk: malformed Content-Range');
+  if (!segmentSize || segmentSize < 1) {
+    throw new Error('blobToDisk: missing segment size');
+  }
 
-  const total = parsed.total;
-  const segmentSize = Number(resp.headers.get('content-length')) || 1;
-
-  // Build a list of Range requests covering the whole file.
+  const total = size;
   const ranges = [];
   for (let start = 0; start < total; start += segmentSize) {
     const end = Math.min(start + segmentSize - 1, total - 1);
@@ -38,7 +44,6 @@ export async function blobToDisk({ url, filename, size: _size, contentType, onPr
   const buffers = new Array(ranges.length);
   let done = 0;
 
-  // Run SEGMENT_PARALLEL at a time.
   for (let i = 0; i < ranges.length; i += SEGMENT_PARALLEL) {
     if (signal?.aborted) throw new Error('aborted');
     const batch = ranges.slice(i, i + SEGMENT_PARALLEL);
@@ -55,6 +60,10 @@ export async function blobToDisk({ url, filename, size: _size, contentType, onPr
     log.info(`batch complete: ${results.length} segments, ${done}/${total} bytes`);
   }
 
+  triggerDownload(buffers, filename, contentType);
+}
+
+function triggerDownload(buffers, filename, contentType) {
   const blob = new Blob(buffers, { type: contentType || 'application/octet-stream' });
   const objectUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');

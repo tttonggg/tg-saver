@@ -24,9 +24,16 @@ export function startScanner({ platform, getSettings, onDiscover }) {
     return { stop() {} };
   }
 
-  const seen = new WeakSet();
+  const seen = new WeakSet();          // bubbles we've already handed to onDiscover
+  const scannedEmpty = new WeakSet();  // bubbles we've scanned but found nothing in (yet)
 
   function scanBubble(bubble) {
+    // Once we've discovered REAL media in a bubble, we're done with it.
+    // Bubbles we've scanned-but-found-empty are NOT marked seen: Telegram
+    // frequently renders a bubble skeleton first and lazy-loads the <img src>
+    // later, at which point the MutationObserver re-fires and we want to
+    // re-scan. We do guard against re-running scanAll on the same empty
+    // bubble within the same microtask via scannedEmpty.
     if (seen.has(bubble)) return;
     const mediaNodes = platform.iterMedia(bubble);
     const settings = getSettings();
@@ -37,7 +44,7 @@ export function startScanner({ platform, getSettings, onDiscover }) {
       const item = buildMediaItem(node, bubble, platform);
       if (item) items.push(item);
     }
-    if (items.length === 0) { seen.add(bubble); return; }
+    if (items.length === 0) { scannedEmpty.add(bubble); return; }
     const grouped = groupIntoAlbum(items, bubble, platform);
     onDiscover(bubble, grouped);
     seen.add(bubble);
@@ -60,10 +67,17 @@ export function startScanner({ platform, getSettings, onDiscover }) {
           debouncedScan();
         }
       }
+      // Attribute mutations on existing elements: covers the lazy-load case
+      // where Telegram sets <img src> on an already-rendered bubble skeleton.
+      // Also catches re-rendered media inside bubbles we previously scanned empty.
+      if (m.type === 'attributes' && m.target?.closest?.(firstSelector(platform.selectors.messageBubble))) {
+        const bubble = m.target.closest(firstSelector(platform.selectors.messageBubble));
+        if (bubble && !seen.has(bubble)) scanBubble(bubble);
+      }
     }
   });
 
-  observer.observe(scrollRoot, { childList: true, subtree: true });
+  observer.observe(scrollRoot, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
   scanAll();
   log.info(`scanner started on ${platform.name}; initial bubbles scanned`);
 

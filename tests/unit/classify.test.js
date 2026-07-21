@@ -42,3 +42,14 @@ test('webk avatar and thumbs are classified correctly', () => {
   assert.equal(tiers.filter(t => t === 'PROFILE_PIC').length, 1);
   assert.equal(tiers.filter(t => t === 'THUMBNAIL').length, 2);
 });
+
+test('zero-rect nodes are NOT misclassified as UI_CHROME (regression for jsdom/display:none)', () => {
+  // jsdom returns 0×0 rects for everything; production has the same issue for
+  // nodes briefly display:none during render. A node that looks like media
+  // (no ancestor matchers, no data-id) should fall through to REAL, not UI_CHROME.
+  const dom = new JSDOM('<!doctype html><html><body><img src="x.jpg" id="t"></body></html>');
+  const img = dom.window.document.getElementById('t');
+  // No selectors match (using weba selectors), no data-id, zero rect → must be REAL.
+  const tier = classifyMediaNode(img, weba, { includeStickers: false });
+  assert.equal(tier, 'REAL');
+});

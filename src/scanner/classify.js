@@ -26,10 +26,13 @@ export function classifyMediaNode(node, platform, settings = {}) {
   // Data-attribute heuristic: explicit media id → REAL even if no context matched.
   if (node.dataset?.photoId || node.dataset?.documentId) return 'REAL';
 
-  // Size heuristic (last resort).
+  // Size heuristic (last resort). Only fires for nodes with a non-zero rect:
+  // getBoundingClientRect returns 0×0 for disconnected nodes (jsdom) or
+  // elements with display:none, and treating those as "tiny" would misclassify
+  // real media that's briefly hidden during render.
   const rect = node.getBoundingClientRect?.();
-  if (rect && Math.max(rect.width, rect.height) < SMALL_PX) {
-    // Tiny media inside a text-like container is almost always emoji/icon chrome.
+  if (rect && (rect.width > 0 || rect.height > 0) && Math.max(rect.width, rect.height) < SMALL_PX) {
+    // Tiny rendered media inside a text-like container is almost always emoji/icon chrome.
     return 'UI_CHROME';
   }
 
