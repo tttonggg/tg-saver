@@ -1,0 +1,21 @@
+{
+  "extName": {
+    "message": "tg-saver — Telegram media downloader",
+    "description": "Extension name shown in Chrome."
+  },
+  "extDesc": {
+    "message": "Privacy-first, no-limits Telegram Web media downloader. Local-only, no telemetry, no login.",
+    "description": "Shown in the Chrome Web Store and extension list."
+  },
+  "downloadTooltip": {
+    "message": "Download",
+    "description": "Hover tooltip on the per-message download icon."
+  },
+  "downloadAlbumTooltip": {
+    "message": "Download album ($count$ items)",
+    "description": "Hover tooltip when the message is an album.",
+    "placeholders": {
+      "count": { "content": "$1", "example": "3" }
+    }
+  }
+}

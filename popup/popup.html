@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tg-saver</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>tg-saver</h1>
+    <p class="tagline">Privacy-first Telegram media downloader</p>
+  </header>
+
+  <main>
+    <label class="row">
+      <span>Silent mode</span>
+      <input type="checkbox" id="silentMode">
+      <small>Hide the media viewer during album downloads.</small>
+    </label>
+
+    <label class="row">
+      <span>Stream to disk (File System Access)</span>
+      <input type="checkbox" id="streamEnabled">
+      <small>Required for files &gt;100 MB. Falls back to in-memory if unavailable.</small>
+    </label>
+
+    <label class="row">
+      <span>Include stickers as media</span>
+      <input type="checkbox" id="includeStickers">
+      <small>Off by default — stickers usually aren't what you want to save.</small>
+    </label>
+
+    <label class="row">
+      <span>Debug logging</span>
+      <input type="checkbox" id="debug">
+      <small>Prints discovery + download details to the page console.</small>
+    </label>
+
+    <details>
+      <summary>How it works &amp; privacy</summary>
+      <p>tg-saver makes <strong>no network requests except to <code>web.telegram.org</code></strong> (the page you're already on). No telemetry, no login, no tracking. It reads only what's already rendered. Source: <a href="https://github.com/tttonggg/tg-saver" target="_blank" rel="noopener">github.com/tttonggg/tg-saver</a></p>
+    </details>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
